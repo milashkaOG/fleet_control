@@ -1,2 +1,2 @@
-# fleet_control
-Educational project demonstrating the software development lifecycle for a taxi fleet management system.
+# Описание проекта
+Учебный проект, демонстрирующий жизненный цикл разработки программного обеспечения для системы управления парком такси.
