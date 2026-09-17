@@ -6,6 +6,8 @@
   "scripts": {
   "start": "node src/server.js",
   "test": "jest",
+  "test:coverage": "jest --coverage",
+  "test:ci": "jest --runInBand",
   "migrate": "node scripts/migrate.js",
   "seed": "node scripts/seed.js"
   },
