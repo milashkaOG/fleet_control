@@ -40,16 +40,23 @@ describe('GET /vehicles', () => {
     ]);
 
     expect(pool.query).toHaveBeenCalledTimes(1);
-  });
+    });
 
-  test('should return status 500 when database query fails', async () => {
+    test('should return status 500 when database query fails', async () => {
+    const consoleErrorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+
     pool.query.mockRejectedValue(new Error('Database error'));
 
     const response = await request(app).get('/vehicles');
 
     expect(response.statusCode).toBe(500);
     expect(response.body).toEqual({
-      error: 'Internal server error'
+        error: 'Internal server error'
     });
-  });
+
+    consoleErrorSpy.mockRestore();
+    });
 });
+
