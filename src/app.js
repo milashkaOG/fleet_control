@@ -60,4 +60,47 @@ app.get('/drivers', async (req, res) => {
   }
 });
 
+app.post('/replacement-assignments', async (req, res) => {
+  const { driver_id, vehicle_id } = req.body;
+
+  if (!driver_id || !vehicle_id) {
+    return res.status(400).json({
+      error: 'driver_id and vehicle_id are required'
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        INSERT INTO replacement_vehicle_assignments (
+          driver_id,
+          vehicle_id
+        )
+        VALUES ($1, $2)
+        RETURNING
+          id,
+          driver_id,
+          vehicle_id,
+          started_at,
+          ended_at
+      `,
+      [driver_id, vehicle_id]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    if (error.code === '23503') {
+      return res.status(400).json({
+        error: 'Driver or vehicle does not exist'
+      });
+    }
+
+    console.error('Failed to create replacement assignment:', error);
+
+    res.status(500).json({
+      error: 'Internal server error'
+    });
+  }
+});
+
 module.exports = app;
