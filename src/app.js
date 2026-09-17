@@ -38,4 +38,26 @@ app.get('/vehicles', async (req, res) => {
   }
 });
 
+app.get('/drivers', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        id,
+        full_name,
+        license_number,
+        status
+      FROM drivers
+      ORDER BY id
+    `);
+
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error('Failed to get drivers:', error);
+
+    res.status(500).json({
+      error: 'Internal server error'
+    });
+  }
+});
+
 module.exports = app;
