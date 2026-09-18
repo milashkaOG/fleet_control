@@ -1,15 +1,15 @@
 {
   "name": "fleet_control",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Учебный проект, демонстрирующий жизненный цикл разработки программного обеспечения для системы управления парком такси.",
   "main": "src/server.js",
   "scripts": {
-  "start": "node src/server.js",
-  "test": "jest",
-  "test:coverage": "jest --coverage",
-  "test:ci": "jest --runInBand",
-  "migrate": "node scripts/migrate.js",
-  "seed": "node scripts/seed.js"
+    "start": "node src/server.js",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:ci": "jest --runInBand",
+    "migrate": "node scripts/migrate.js",
+    "seed": "node scripts/seed.js"
   },
   "repository": {
     "type": "git",
