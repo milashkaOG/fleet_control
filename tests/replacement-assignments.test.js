@@ -208,6 +208,82 @@ describe('POST /replacement-assignments', () => {
     expect(client.query).toHaveBeenCalledWith('ROLLBACK');
   });
 
+  test('should return 409 when driver is inactive', async () => {
+  client.query.mockImplementation(async (query) => {
+    if (
+      query === 'BEGIN' ||
+      query === 'ROLLBACK' ||
+      query === 'COMMIT'
+    ) {
+      return {};
+    }
+
+    if (query.includes('SELECT id, availability_status')) {
+      return {
+        rows: [
+          {
+            id: '1',
+            availability_status: 'AVAILABLE'
+          }
+        ]
+      };
+    }
+
+    if (query.includes('SELECT id, status FROM drivers')) {
+      return {
+        rows: [
+          {
+            id: '3',
+            status: 'INACTIVE'
+          }
+        ]
+      };
+    }
+
+    if (query.includes('INSERT INTO replacement_vehicle_assignments')) {
+      return {
+        rows: [
+          {
+            id: '7',
+            driver_id: '3',
+            vehicle_id: '1',
+            started_at: '2026-09-19T21:32:04.494Z',
+            ended_at: null
+          }
+        ]
+      };
+    }
+
+    if (query.includes('UPDATE vehicles')) {
+      return {
+        rowCount: 1
+      };
+    }
+
+    return {};
+  });
+
+  const response = await request(app)
+    .post('/replacement-assignments')
+    .send({
+      driver_id: 3,
+      vehicle_id: 1
+    });
+
+  expect(response.statusCode).toBe(409);
+
+  expect(response.body).toEqual({
+    error: 'Driver is not active'
+  });
+
+  expect(client.query).toHaveBeenCalledWith('ROLLBACK');
+
+  expect(client.query).not.toHaveBeenCalledWith(
+    expect.stringContaining('INSERT INTO replacement_vehicle_assignments'),
+    expect.anything()
+  );
+  });
+
   test.each([
   {
     body: { driver_id: 1, vehicle_id: 'abc' },
