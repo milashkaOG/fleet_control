@@ -63,9 +63,20 @@ app.get('/drivers', async (req, res) => {
 app.post('/replacement-assignments', async (req, res) => {
   const { driver_id, vehicle_id } = req.body;
 
-  if (!driver_id || !vehicle_id) {
+  if (driver_id === undefined || vehicle_id === undefined) {
     return res.status(400).json({
       error: 'driver_id and vehicle_id are required'
+    });
+  }
+
+  if (
+    !Number.isInteger(driver_id) ||
+    !Number.isInteger(vehicle_id) ||
+    driver_id <= 0 ||
+    vehicle_id <= 0
+  ) {
+    return res.status(400).json({
+      error: 'driver_id and vehicle_id must be positive integers'
     });
   }
 
