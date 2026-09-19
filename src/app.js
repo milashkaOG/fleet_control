@@ -115,6 +115,30 @@ app.post('/replacement-assignments', async (req, res) => {
       });
     }
 
+    const driver = await client.query(
+      `
+        SELECT id, status FROM drivers
+        WHERE id = $1
+      `,
+      [driver_id]
+    );
+
+    if (driver.rows.length === 0) {
+      await client.query('ROLLBACK');
+
+      return res.status(400).json({
+        error: 'Driver does not exist'
+      });
+    }
+
+    if (driver.rows[0].status !== 'ACTIVE') {
+      await client.query('ROLLBACK');
+
+      return res.status(409).json({
+        error: 'Driver is not active'
+      });
+    }
+
     const assignmentResult = await client.query(
       `
         INSERT INTO replacement_vehicle_assignments (
@@ -168,3 +192,5 @@ app.post('/replacement-assignments', async (req, res) => {
 });
 
 module.exports = app;
+
+
