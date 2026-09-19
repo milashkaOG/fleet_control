@@ -207,4 +207,31 @@ describe('POST /replacement-assignments', () => {
 
     expect(client.query).toHaveBeenCalledWith('ROLLBACK');
   });
+
+  test.each([
+  {
+    body: { driver_id: 1, vehicle_id: 'abc' },
+    caseName: 'string vehicle_id'
+  },
+  {
+    body: { driver_id: 'abc', vehicle_id: 1 },
+    caseName: 'string driver_id'
+  },
+  {
+    body: { driver_id: 1, vehicle_id: 1.5 },
+    caseName: 'fractional vehicle_id'
+  }
+  ])('should return 400 for $caseName', async ({ body }) => {
+    const response = await request(app)
+      .post('/replacement-assignments')
+      .send(body);
+
+    expect(response.statusCode).toBe(400);
+
+    expect(response.body).toEqual({
+      error: 'driver_id and vehicle_id must be positive integers'
+    });
+
+    expect(pool.connect).not.toHaveBeenCalled();
+  });
 });
