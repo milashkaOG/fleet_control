@@ -4,11 +4,13 @@ on:
   pull_request:
     branches:
       - develop
+      - maintenance
       - main
 
   push:
     branches:
       - develop
+      - maintenance
       - main
 
 jobs:
