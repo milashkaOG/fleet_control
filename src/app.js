@@ -10,7 +10,7 @@ app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     service: 'FleetControl',
-    version: '0.2.0'
+    version: '0.2.1'
   });
 });
 
@@ -63,9 +63,20 @@ app.get('/drivers', async (req, res) => {
 app.post('/replacement-assignments', async (req, res) => {
   const { driver_id, vehicle_id } = req.body;
 
-  if (!driver_id || !vehicle_id) {
+  if (driver_id === undefined || vehicle_id === undefined) {
     return res.status(400).json({
       error: 'driver_id and vehicle_id are required'
+    });
+  }
+
+  if (
+    !Number.isInteger(driver_id) ||
+    !Number.isInteger(vehicle_id) ||
+    driver_id <= 0 ||
+    vehicle_id <= 0
+  ) {
+    return res.status(400).json({
+      error: 'driver_id and vehicle_id must be positive integers'
     });
   }
 
@@ -101,6 +112,30 @@ app.post('/replacement-assignments', async (req, res) => {
 
       return res.status(409).json({
         error: 'Vehicle is not available'
+      });
+    }
+
+    const driver = await client.query(
+      `
+        SELECT id, status FROM drivers
+        WHERE id = $1
+      `,
+      [driver_id]
+    );
+
+    if (driver.rows.length === 0) {
+      await client.query('ROLLBACK');
+
+      return res.status(400).json({
+        error: 'Driver does not exist'
+      });
+    }
+
+    if (driver.rows[0].status !== 'ACTIVE') {
+      await client.query('ROLLBACK');
+
+      return res.status(409).json({
+        error: 'Driver is not active'
       });
     }
 
@@ -157,3 +192,5 @@ app.post('/replacement-assignments', async (req, res) => {
 });
 
 module.exports = app;
+
+
