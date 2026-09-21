@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+
+    environment:
+      POSTGRES_USER: fleetcontrol
+      POSTGRES_PASSWORD: fleetcontrol
+      POSTGRES_DB: fleetcontrol
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U fleetcontrol -d fleetcontrol
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://fleetcontrol:fleetcontrol@postgres:5432/fleetcontrol
+
+    ports:
+      - "3000:3000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    command: >
+      sh -c "
+      npm run migrate &&
+      npm run seed &&
+      npm start
+      "
+
+volumes:
+  postgres_data:
