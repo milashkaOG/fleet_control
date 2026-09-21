@@ -10,7 +10,7 @@ app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     service: 'FleetControl',
-    version: '0.2.1'
+    version: '1.0.0'
   });
 });
 
@@ -180,6 +180,107 @@ app.post('/replacement-assignments', async (req, res) => {
     }
 
     console.error('Failed to create replacement assignment:', error);
+
+    return res.status(500).json({
+      error: 'Internal server error'
+    });
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
+});
+
+app.post('/replacement-assignments/:id/return', async (req, res) => {
+  const assignmentId = Number(req.params.id);
+
+  if (
+    !Number.isInteger(assignmentId) ||
+    assignmentId <= 0
+  ) {
+    return res.status(400).json({
+      error: 'assignment id must be a positive integer'
+    });
+  }
+
+  let client;
+
+  try {
+    client = await pool.connect();
+
+    await client.query('BEGIN');
+
+    const assignmentResult = await client.query(
+      `
+        SELECT
+          id,
+          driver_id,
+          vehicle_id,
+          started_at,
+          ended_at
+        FROM replacement_vehicle_assignments
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [assignmentId]
+    );
+
+    if (assignmentResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+
+      return res.status(404).json({
+        error: 'Replacement assignment does not exist'
+      });
+    }
+
+    const assignment = assignmentResult.rows[0];
+
+    if (assignment.ended_at !== null) {
+      await client.query('ROLLBACK');
+
+      return res.status(409).json({
+        error: 'Replacement assignment is already completed'
+      });
+    }
+
+    const updatedAssignmentResult = await client.query(
+      `
+        UPDATE replacement_vehicle_assignments
+        SET ended_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        RETURNING
+          id,
+          driver_id,
+          vehicle_id,
+          started_at,
+          ended_at
+      `,
+      [assignmentId]
+    );
+
+    await client.query(
+      `
+        UPDATE vehicles
+        SET availability_status = 'AVAILABLE'
+        WHERE id = $1
+      `,
+      [assignment.vehicle_id]
+    );
+
+    await client.query('COMMIT');
+
+    return res.status(200).json(
+      updatedAssignmentResult.rows[0]
+    );
+  } catch (error) {
+    if (client) {
+      await client.query('ROLLBACK');
+    }
+
+    console.error(
+      'Failed to return replacement vehicle:',
+      error
+    );
 
     return res.status(500).json({
       error: 'Internal server error'
