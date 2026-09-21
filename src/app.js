@@ -10,7 +10,7 @@ app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     service: 'FleetControl',
-    version: '0.2.1'
+    version: '1.0.0'
   });
 });
 
