@@ -315,3 +315,195 @@ describe('POST /replacement-assignments', () => {
     expect(pool.connect).not.toHaveBeenCalled();
   });
 });
+
+describe('POST /replacement-assignments/:id/return', () => {
+  let client;
+
+  beforeEach(() => {
+    client = {
+      query: jest.fn(),
+      release: jest.fn()
+    };
+
+    pool.connect.mockResolvedValue(client);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('should complete assignment and mark vehicle as AVAILABLE', async () => {
+    client.query.mockImplementation(async (query) => {
+      if (query === 'BEGIN' || query === 'COMMIT') {
+        return {};
+      }
+
+      if (
+        query.includes('SELECT') &&
+        query.includes('FROM replacement_vehicle_assignments')
+      ) {
+        return {
+          rows: [
+            {
+              id: '12',
+              driver_id: '1',
+              vehicle_id: '3',
+              started_at: '2026-09-20T10:00:00.000Z',
+              ended_at: null
+            }
+          ]
+        };
+      }
+
+      if (
+        query.includes('UPDATE replacement_vehicle_assignments')
+      ) {
+        return {
+          rows: [
+            {
+              id: '12',
+              driver_id: '1',
+              vehicle_id: '3',
+              started_at: '2026-09-20T10:00:00.000Z',
+              ended_at: '2026-09-21T10:00:00.000Z'
+            }
+          ]
+        };
+      }
+
+      if (query.includes('UPDATE vehicles')) {
+        return {
+          rowCount: 1
+        };
+      }
+
+      return {};
+    });
+
+    const response = await request(app)
+      .post('/replacement-assignments/12/return');
+
+    expect(response.statusCode).toBe(200);
+
+    expect(response.body).toEqual({
+      id: '12',
+      driver_id: '1',
+      vehicle_id: '3',
+      started_at: '2026-09-20T10:00:00.000Z',
+      ended_at: '2026-09-21T10:00:00.000Z'
+    });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'UPDATE replacement_vehicle_assignments'
+      ),
+      [12]
+    );
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE vehicles'),
+      ['3']
+    );
+
+    expect(client.query).toHaveBeenCalledWith('COMMIT');
+    expect(client.release).toHaveBeenCalled();
+  });
+
+  test.each([
+    'abc',
+    '0',
+    '-1',
+    '1.5'
+  ])('should return 400 for invalid assignment id %s', async (id) => {
+    const response = await request(app)
+      .post(`/replacement-assignments/${id}/return`);
+
+    expect(response.statusCode).toBe(400);
+
+    expect(response.body).toEqual({
+      error: 'assignment id must be a positive integer'
+    });
+
+    expect(pool.connect).not.toHaveBeenCalled();
+  });
+
+  test('should return 404 when assignment does not exist', async () => {
+    client.query.mockImplementation(async (query) => {
+      if (query === 'BEGIN' || query === 'ROLLBACK') {
+        return {};
+      }
+
+      if (
+        query.includes('SELECT') &&
+        query.includes('FROM replacement_vehicle_assignments')
+      ) {
+        return {
+          rows: []
+        };
+      }
+
+      return {};
+    });
+
+    const response = await request(app)
+      .post('/replacement-assignments/999/return');
+
+    expect(response.statusCode).toBe(404);
+
+    expect(response.body).toEqual({
+      error: 'Replacement assignment does not exist'
+    });
+
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK');
+  });
+
+  test('should return 409 when assignment is already completed', async () => {
+    client.query.mockImplementation(async (query) => {
+      if (query === 'BEGIN' || query === 'ROLLBACK') {
+        return {};
+      }
+
+      if (
+        query.includes('SELECT') &&
+        query.includes('FROM replacement_vehicle_assignments')
+      ) {
+        return {
+          rows: [
+            {
+              id: '12',
+              driver_id: '1',
+              vehicle_id: '3',
+              started_at: '2026-09-20T10:00:00.000Z',
+              ended_at: '2026-09-21T08:00:00.000Z'
+            }
+          ]
+        };
+      }
+
+      return {};
+    });
+
+    const response = await request(app)
+      .post('/replacement-assignments/12/return');
+
+    expect(response.statusCode).toBe(409);
+
+    expect(response.body).toEqual({
+      error: 'Replacement assignment is already completed'
+    });
+
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK');
+
+    expect(client.query).not.toHaveBeenCalledWith(
+      expect.stringContaining(
+        'UPDATE replacement_vehicle_assignments'
+      ),
+      expect.anything()
+    );
+
+    expect(client.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE vehicles'),
+      expect.anything()
+    );
+  });
+});
