@@ -1,47 +1,25 @@
 # Развёртывание FleetControl
 
-## 1. Назначение документа
+## 1. Требования
 
-Документ описывает процесс локального контейнерного развёртывания FleetControl с использованием Docker и Docker Compose.
-
-Контейнерное окружение предназначено для воспроизводимого запуска:
-
-- серверного приложения FleetControl;
-- PostgreSQL;
-- миграций базы данных;
-- демонстрационных данных.
-
-После подготовки окружения система запускается одной командой Docker Compose.
-
----
-
-## 2. Требования
-
-Для запуска необходимы:
+Для контейнерного запуска FleetControl необходимы:
 
 - Git;
 - Docker Desktop;
 - Docker Compose.
 
-Для проверки установки Docker:
+Проверка:
 
 ```bash
 docker --version
-```
-
-Проверка Docker Compose:
-
-```bash
 docker compose version
 ```
 
-На Windows Docker Desktop использует WSL2.
-
 ---
 
-## 3. Состав контейнерного окружения
+## 2. Архитектура
 
-Docker Compose запускает два основных сервиса:
+Docker Compose запускает два сервиса:
 
 ```text
 FleetControl
@@ -53,27 +31,25 @@ FleetControl
     └── PostgreSQL 16
 ```
 
-Приложение и PostgreSQL находятся в общей внутренней Docker-сети.
-
-С хостовой системы наружу публикуется порт приложения:
+API публикуется на:
 
 ```text
-localhost:3000
+http://localhost:3000
 ```
 
-PostgreSQL не обязан публиковать порт `5432` наружу, поскольку приложение подключается к нему через внутреннюю сеть Docker.
+PostgreSQL доступен приложению через внутреннюю Docker-сеть.
 
 ---
 
-## 4. Dockerfile
+## 3. Dockerfile
 
-Для сборки приложения используется файл:
+Приложение собирается на основе:
 
 ```text
-Dockerfile
+node:22-alpine
 ```
 
-Конфигурация:
+Используемый Dockerfile:
 
 ```dockerfile
 FROM node:22-alpine
@@ -93,257 +69,76 @@ EXPOSE 3000
 CMD ["npm", "start"]
 ```
 
-В качестве базового образа используется:
-
-```text
-node:22-alpine
-```
-
-Образ Alpine выбран для уменьшения размера runtime-контейнера.
-
-Сначала копируются `package.json` и `package-lock.json`, после чего выполняется:
-
-```bash
-npm ci --omit=dev
-```
-
-Это позволяет устанавливать только зависимости, необходимые для запуска приложения.
-
-После этого копируются:
-
-- исходный код;
-- скрипты миграции и seed;
-- миграции базы данных.
+Для уменьшения build context используется `.dockerignore`.
 
 ---
 
-## 5. `.dockerignore`
+## 4. Docker Compose
 
-Файл `.dockerignore` исключает ненужные файлы из Docker build context.
+Основные сервисы:
 
-Пример:
+- `app`;
+- `postgres`.
 
-```text
-node_modules
-npm-debug.log
-.git
-.github
-.env
-coverage
-docs
-tests
-README.md
-```
-
-Локальный `.env` не копируется внутрь Docker image.
-
-Переменные окружения контейнеров задаются через Docker Compose.
-
----
-
-## 6. Docker Compose
-
-Для запуска используется:
+PostgreSQL использует:
 
 ```text
-docker-compose.yml
+postgres:16-alpine
 ```
 
-Конфигурация содержит сервисы:
-
-- `postgres`;
-- `app`.
-
-Пример конфигурации:
-
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine
-
-    environment:
-      POSTGRES_USER: fleetcontrol
-      POSTGRES_PASSWORD: fleetcontrol
-      POSTGRES_DB: fleetcontrol
-
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - pg_isready -U fleetcontrol -d fleetcontrol
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-
-    environment:
-      PORT: 3000
-      DATABASE_URL: postgresql://fleetcontrol:fleetcontrol@postgres:5432/fleetcontrol
-
-    ports:
-      - "3000:3000"
-
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-    command: >
-      sh -c "
-      npm run migrate &&
-      npm run seed &&
-      npm start
-      "
-
-volumes:
-  postgres_data:
-```
-
----
-
-## 7. Подключение приложения к PostgreSQL
-
-При локальном запуске вне Docker может использоваться:
-
-```text
-postgresql://fleetcontrol:fleetcontrol@localhost:5432/fleetcontrol
-```
-
-В Docker Compose `localhost` использовать нельзя, поскольку внутри контейнера `localhost` означает сам контейнер приложения.
-
-Для обращения к PostgreSQL используется имя Compose-сервиса:
-
-```text
-postgres
-```
-
-Поэтому контейнерная строка подключения имеет вид:
+Приложение подключается к БД по адресу:
 
 ```text
 postgresql://fleetcontrol:fleetcontrol@postgres:5432/fleetcontrol
 ```
 
-Docker автоматически предоставляет DNS-разрешение имени `postgres` внутри Compose-сети.
+Внутри Docker Compose используется имя сервиса `postgres`, а не `localhost`.
+
+Для PostgreSQL настроен healthcheck, поэтому приложение запускается только после готовности базы данных.
 
 ---
 
-## 8. Healthcheck PostgreSQL
+## 5. Миграции и seed
 
-Перед запуском приложения необходимо убедиться, что PostgreSQL уже готов принимать соединения.
-
-Для этого используется:
-
-```yaml
-healthcheck:
-  test:
-    - CMD-SHELL
-    - pg_isready -U fleetcontrol -d fleetcontrol
-```
-
-Приложение зависит от:
-
-```yaml
-depends_on:
-  postgres:
-    condition: service_healthy
-```
-
-Таким образом, запуск приложения происходит только после перехода PostgreSQL в состояние healthy.
-
----
-
-## 9. Миграции базы данных
-
-При запуске контейнера приложения выполняется:
+При запуске приложения автоматически выполняются:
 
 ```bash
 npm run migrate
-```
-
-Команда запускает:
-
-```text
-scripts/migrate.js
-```
-
-Миграции позволяют последовательно формировать структуру базы данных и хранить изменения схемы в системе контроля версий.
-
-Миграции являются повторяемыми: уже выполненные изменения повторно не применяются.
-
----
-
-## 10. Демонстрационные данные
-
-После миграций автоматически выполняется:
-
-```bash
 npm run seed
+npm start
 ```
 
-Seed используется для загрузки демонстрационных данных.
+Миграции создают и обновляют структуру базы данных.
 
-В тестовом окружении создаются, в частности:
-
-- автомобили;
-- водители.
-
-Seed предназначен для подготовки воспроизводимого демонстрационного окружения.
+Seed загружает демонстрационные данные, необходимые для локального запуска и демонстрации системы.
 
 ---
 
-## 11. Запуск системы
+## 6. Запуск
 
-Находясь в корне репозитория, выполнить:
+Сборка и запуск:
 
 ```bash
 docker compose up --build
 ```
 
-Команда:
-
-1. собирает Docker image FleetControl;
-2. создаёт PostgreSQL-контейнер;
-3. создаёт persistent volume;
-4. ожидает готовности PostgreSQL;
-5. запускает миграции;
-6. выполняет seed;
-7. запускает Node.js-приложение.
-
-Для запуска в фоновом режиме:
+В фоновом режиме:
 
 ```bash
 docker compose up -d --build
 ```
 
----
-
-## 12. Проверка состояния контейнеров
-
-Для просмотра запущенных сервисов:
+Проверка контейнеров:
 
 ```bash
 docker compose ps
 ```
 
-Ожидается наличие:
-
-```text
-app
-postgres
-```
-
-PostgreSQL должен находиться в состоянии healthy.
-
 ---
 
-## 13. Проверка `/health`
+## 7. Проверка приложения
 
-После запуска приложения выполнить:
+Healthcheck API:
 
 ```powershell
 Invoke-WebRequest `
@@ -351,69 +146,16 @@ Invoke-WebRequest `
     -Uri "http://localhost:3000/health"
 ```
 
-Ожидается HTTP:
-
-```text
-200 OK
-```
-
-Пример ответа:
-
-```json
-{
-  "status": "ok",
-  "service": "FleetControl",
-  "version": "0.2.1"
-}
-```
-
-Номер версии зависит от текущей версии приложения.
-
----
-
-## 14. Проверка автомобилей
-
-Endpoint:
+Другие доступные endpoints:
 
 ```text
 GET /vehicles
-```
-
-Проверка из PowerShell:
-
-```powershell
-Invoke-WebRequest `
-    -UseBasicParsing `
-    -Uri "http://localhost:3000/vehicles"
-```
-
-При корректно выполненном seed возвращается список автомобилей.
-
----
-
-## 15. Проверка водителей
-
-Endpoint:
-
-```text
 GET /drivers
+POST /replacement-assignments
+POST /replacement-assignments/:id/return
 ```
 
-Команда:
-
-```powershell
-Invoke-WebRequest `
-    -UseBasicParsing `
-    -Uri "http://localhost:3000/drivers"
-```
-
-При корректно выполненном seed возвращается список водителей.
-
----
-
-## 16. Проверка PostgreSQL из контейнера
-
-Для выполнения SQL непосредственно внутри PostgreSQL-контейнера:
+Проверить данные PostgreSQL можно напрямую:
 
 ```powershell
 docker compose exec postgres psql `
@@ -421,89 +163,43 @@ docker compose exec postgres psql `
     -d fleetcontrol
 ```
 
-Например, просмотр автомобилей:
-
-```powershell
-docker compose exec postgres psql `
-    -U fleetcontrol `
-    -d fleetcontrol `
-    -c "SELECT id, brand, model, availability_status FROM vehicles ORDER BY id;"
-```
-
-Просмотр водителей:
-
-```powershell
-docker compose exec postgres psql `
-    -U fleetcontrol `
-    -d fleetcontrol `
-    -c "SELECT id, full_name, status FROM drivers ORDER BY id;"
-```
-
 ---
 
-## 17. Persistent volume
+## 8. Persistent volume
 
-Для PostgreSQL используется именованный volume:
+PostgreSQL использует именованный volume:
 
 ```text
 postgres_data
 ```
 
-Он подключается к:
-
-```text
-/var/lib/postgresql/data
-```
-
-Благодаря этому данные БД не зависят от жизненного цикла контейнера PostgreSQL.
-
-Обычная остановка:
+Поэтому команда:
 
 ```bash
 docker compose down
 ```
 
-удаляет контейнеры и сеть, но не удаляет данные PostgreSQL.
+удаляет контейнеры, но сохраняет данные.
 
-После повторного запуска:
+После повторного:
 
 ```bash
 docker compose up -d
 ```
 
-ранее сохранённые данные остаются доступны.
+БД остаётся доступной с ранее сохранёнными данными.
 
----
-
-## 18. Полное удаление базы данных
-
-Команда:
+Для полного удаления контейнерного окружения вместе с БД:
 
 ```bash
 docker compose down -v
 ```
 
-удаляет:
-
-- контейнеры;
-- сеть;
-- volumes.
-
-После этого база данных будет создана заново при следующем запуске.
-
-Команду `down -v` следует использовать только тогда, когда необходимо полностью сбросить контейнерное окружение и данные.
-
 ---
 
-## 19. Просмотр логов
+## 9. Логи и диагностика
 
 Логи приложения:
-
-```bash
-docker compose logs app
-```
-
-Непрерывный просмотр:
 
 ```bash
 docker compose logs -f app
@@ -515,100 +211,56 @@ docker compose logs -f app
 docker compose logs postgres
 ```
 
-Логи всех сервисов:
-
-```bash
-docker compose logs
-```
-
----
-
-## 20. Пересборка приложения
-
-После изменения Dockerfile или зависимостей рекомендуется:
-
-```bash
-docker compose up --build
-```
-
-Если требуется принудительная пересборка:
-
-```bash
-docker compose build --no-cache
-docker compose up
-```
-
----
-
-## 21. Остановка системы
-
-Остановка и удаление контейнеров:
-
-```bash
-docker compose down
-```
-
-Если требуется только остановить контейнеры без удаления:
-
-```bash
-docker compose stop
-```
-
-Повторный запуск:
-
-```bash
-docker compose start
-```
-
----
-
-## 22. Диагностика
-
-### Приложение не запускается
-
-Проверить:
+Если приложение не запускается:
 
 ```bash
 docker compose ps
-```
-
-и:
-
-```bash
 docker compose logs app
 ```
 
-### PostgreSQL не готов
-
-Проверить:
-
-```bash
-docker compose logs postgres
-```
-
-### Ошибка подключения к БД
-
-В Docker Compose `DATABASE_URL` должен содержать:
+При ошибке подключения к БД необходимо проверить, что `DATABASE_URL` использует:
 
 ```text
 @postgres:5432
 ```
 
-а не:
+а не `@localhost:5432`.
 
-```text
-@localhost:5432
-```
-
-### Порт 3000 уже занят
-
-Необходимо остановить локально запущенный Node.js-процесс или другой контейнер, использующий порт 3000.
+Если порт `3000` занят, необходимо остановить локальный Node.js-процесс или другой контейнер.
 
 ---
 
-## 23. Развёртывание с чистого окружения
+## 10. Управление окружением
 
-Полный воспроизводимый сценарий:
+Остановить и удалить контейнеры:
+
+```bash
+docker compose down
+```
+
+Только остановить:
+
+```bash
+docker compose stop
+```
+
+Повторно запустить:
+
+```bash
+docker compose start
+```
+
+Пересобрать после изменения Dockerfile или зависимостей:
+
+```bash
+docker compose up --build
+```
+
+---
+
+## 11. Запуск с чистого окружения
+
+Минимальный сценарий:
 
 ```bash
 git clone <repository>
@@ -622,13 +274,4 @@ docker compose up --build
 http://localhost:3000/health
 ```
 
-Затем:
-
-```text
-http://localhost:3000/vehicles
-http://localhost:3000/drivers
-```
-
-Таким образом, для развёртывания FleetControl не требуется вручную устанавливать PostgreSQL или создавать структуру базы данных.
-
-Docker Compose предоставляет единое воспроизводимое окружение приложения и БД.
+Docker Compose самостоятельно поднимает PostgreSQL, выполняет миграции и seed и запускает FleetControl.
