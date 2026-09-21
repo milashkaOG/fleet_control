@@ -8,6 +8,6 @@ describe('GET /health', () => {
     expect(response.statusCode).toBe(200);
     expect(response.body.status).toBe('ok');
     expect(response.body.service).toBe('FleetControl');
-    expect(response.body.version).toBe('0.2.0');
+    expect(response.body.version).toBe('1.0.0');
   });
 });
